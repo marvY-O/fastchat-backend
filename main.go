@@ -32,7 +32,8 @@ func main() {
 		SigningKey: jwtware.SigningKey{Key: []byte(config.AppConfig.JWT_SECRET)},
 	}))
 
-	api.Post("info", users.Get_info)
+	api.Get("info", users.Get_info)
+	api.Get("user_info", users.Get_users_info)
 
 	app.Listen(":3000")
 	log.Println("User service initiated")

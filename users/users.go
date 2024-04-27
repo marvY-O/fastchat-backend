@@ -101,7 +101,35 @@ func Get_info(c *fiber.Ctx) error {
 	claims := user.Claims.(jwt.MapClaims)
 	user_id := claims["user_id"].(string)
 
-	userInfo, err := get_user_info(user_id)
+	userInfo, err := get_user_info("id", user_id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(userInfo)
+}
+
+func Get_users_info(c *fiber.Ctx) error {
+	email := c.Query("email")
+	id := c.Query("id")
+
+	if email == "" && id == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "either 'email' or 'id' parameter is required",
+		})
+	}
+
+	var key, val string
+	switch {
+	case email != "":
+		key, val = "email", email
+	case id != "":
+		key, val = "id", id
+	}
+
+	userInfo, err := get_user_info(key, val)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
