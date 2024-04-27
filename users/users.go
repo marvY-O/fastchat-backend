@@ -9,7 +9,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/marvy-O/fastchat/config"
-	"github.com/marvy-O/fastchat/database"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -32,58 +31,31 @@ func Login_user(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 	}
 
-	email := user.Email
-	password := user.Password
-
-	if email == "" || password == "" {
+	if user.Email == "" || user.Password == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "All fields must be provided!"})
 	}
 
-	query := "SELECT password, id FROM users WHERE email='%s';"
-	query = fmt.Sprintf(query, email)
-
-	rows, err := database.ExecuteQuery(query)
+	user_credentials, err := login_user(user.Email)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
-	var hashed_password string
-	var user_id string
-
-	defer rows.Close()
-
-	// Iterate over the rows
-	for rows.Next() {
-		// Scan the current row's values into variables
-		err := rows.Scan(&hashed_password, &user_id)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-	}
-
-	if hashed_password == "" {
+	if user_credentials.hashed_password == "" {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Email not found",
 		})
 	}
 
-	if check_password(password, hashed_password) {
-		//jwt stuff
-
-		// Create the claims
+	if check_password(user.Password, user_credentials.hashed_password) {
 		claims := jwt.MapClaims{
-			"user_id": user_id,
+			"user_id": user_credentials.user_id,
 			"exp":     time.Now().Add(time.Hour * 72).Unix(),
 		}
 
-		// Create token
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-		// Generate encoded token and send it as response.
 		t, err := token.SignedString([]byte(config.AppConfig.JWT_SECRET))
 		if err != nil {
 			return c.SendStatus(fiber.StatusInternalServerError)
@@ -102,24 +74,18 @@ func Register_user(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 	}
 
-	first_name := user.First_name
-	last_name := user.Last_name
-	email := user.Email
-	password := user.Password
-
-	hashed_password, err := hash_password(password)
+	hashed_password, err := hash_password(user.Password)
 	if err != nil {
 		log.Fatal("Error in hashing password: ", err)
 	}
 
-	if first_name == "" || email == "" || password == "" {
+	user.Password = hashed_password
+
+	if user.First_name == "" || user.Email == "" || user.Password == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "All fields must be provided!"})
 	}
 
-	query := "INSERT INTO users (email, password, first_name, last_name) VALUES ('%s', '%s', '%s', '%s');"
-	query = fmt.Sprintf(query, email, hashed_password, first_name, last_name)
-
-	_, err = database.ExecuteQuery(query)
+	err = create_user(*user)
 	if err != nil {
 		fmt.Println(err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -135,44 +101,14 @@ func Get_info(c *fiber.Ctx) error {
 	claims := user.Claims.(jwt.MapClaims)
 	user_id := claims["user_id"].(string)
 
-	query := "SELECT id, first_name, last_name, email, created_at FROM users where id='%s'"
-	query = fmt.Sprintf(query, user_id)
-
-	rows, err := database.ExecuteQuery(query)
+	userInfo, err := get_user_info(user_id)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
-	var (
-		id         string
-		first_name string
-		last_name  string
-		email      string
-		created_at string
-	)
-
-	defer rows.Close()
-
-	// Iterate over the rows
-	for rows.Next() {
-		// Scan the current row's values into variables
-		err := rows.Scan(&id, &first_name, &last_name, &email, &created_at)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": err.Error(),
-			})
-		}
-	}
-
-	return c.JSON(fiber.Map{
-		"user_id":    id,
-		"first_name": first_name,
-		"last_name":  last_name,
-		"email":      email,
-		"created_at": created_at,
-	})
+	return c.JSON(userInfo)
 }
 
 func hash_password(password string) (string, error) {
